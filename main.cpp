@@ -46,16 +46,51 @@
 #include <openssl/evp.h>
 #include <openssl/err.h>
 
-sgx_status_t sgx_create_rsa_key_pair(int n_byte_size, int e_byte_size, unsigned char *p_n, unsigned char *p_d, unsigned char *p_e,
+enum {
+    SUCCESS,
+    ERROR_INVALID_PARAMETER,
+    ERROR_UNEXPECTED,
+    ERROR_OUT_OF_MEMORY
+};
+
+void client_err_print(int status)
+{
+    switch (status) {
+        case SUCCESS: std::cerr << "------------------------------" << std::endl;
+        std::cerr << "SUCCESS" << std::endl;
+        std::cerr << "status = " << (int)SUCCESS << std::endl;
+        std::cerr << "------------------------------" << std::endl;
+        break;
+        case ERROR_UNEXPECTED: std::cerr << "------------------------------" << std::endl;
+        std::cerr << "ERROR UNEXPECTED" << std::endl;
+        std::cerr << "status = " << (int)ERROR_UNEXPECTED << std::endl;
+        std::cerr << "------------------------------" << std::endl;
+        std::exit(1);
+        case ERROR_INVALID_PARAMETER: std::cerr << "------------------------------" << std::endl;
+        std::cerr << "ERROR INVALID PARAMETER" << std::endl;
+        std::cerr << "status = " << (int)ERROR_INVALID_PARAMETER << std::endl;
+        std::cerr << "------------------------------" << std::endl;
+        std::exit(2);
+        case ERROR_OUT_OF_MEMORY: std::cerr << "------------------------------" << std::endl;
+        std::cerr << "ERROR_OUT_OF_MEMORY" << std::endl;
+        std::cerr << "status = " << (int)ERROR_INVALID_PARAMETER << std::endl;
+        std::cerr << "------------------------------" << std::endl;
+        std::exit(2);
+        default: break;
+    }
+}
+
+
+int sgx_create_rsa_key_pair(int n_byte_size, int e_byte_size, unsigned char *p_n, unsigned char *p_d, unsigned char *p_e,
 	unsigned char *p_p, unsigned char *p_q, unsigned char *p_dmp1,
 	unsigned char *p_dmq1, unsigned char *p_iqmp)
 {
 	if (n_byte_size <= 0 || e_byte_size <= 0 || p_n == NULL || p_d == NULL || p_e == NULL ||
 		p_p == NULL || p_q == NULL || p_dmp1 == NULL || p_dmq1 == NULL || p_iqmp == NULL) {
-		return SGX_ERROR_INVALID_PARAMETER;
+		return ERROR_INVALID_PARAMETER;
 	}
 
-	sgx_status_t ret_code = SGX_ERROR_UNEXPECTED;
+	int ret_code = ERROR_UNEXPECTED;
 	RSA* rsa_ctx = NULL;
 	BIGNUM* bn_n = NULL;
 	BIGNUM* bn_e = NULL;
@@ -72,14 +107,13 @@ sgx_status_t sgx_create_rsa_key_pair(int n_byte_size, int e_byte_size, unsigned 
 		//
 		rsa_ctx = RSA_new();
 		if (rsa_ctx == NULL) {
-			ret_code = SGX_ERROR_OUT_OF_MEMORY;
+			ret_code = ERROR_OUT_OF_MEMORY;
 			break;
 		}
 
 		//generate rsa key pair, with n_byte_size*8 mod size and p_e exponent
 		//
 		tmp_bn_e = BN_lebin2bn(p_e, e_byte_size, tmp_bn_e);
-		BN_CHECK_BREAK(tmp_bn_e);
 		if (RSA_generate_key_ex(rsa_ctx, n_byte_size * 8, tmp_bn_e, NULL) != 1) {
 			break;
 		}
@@ -110,7 +144,7 @@ sgx_status_t sgx_create_rsa_key_pair(int n_byte_size, int e_byte_size, unsigned 
 			break;
 		}
 
-		ret_code = SGX_SUCCESS;
+		ret_code = SUCCESS;
 	} while (0);
 
 	//free rsa ctx (RSA_free also free related BNs obtained in RSA_get functions)
@@ -121,20 +155,20 @@ sgx_status_t sgx_create_rsa_key_pair(int n_byte_size, int e_byte_size, unsigned 
 	return ret_code;
 }
 
-sgx_status_t sgx_create_rsa_priv2_key(int mod_size, int exp_size, const unsigned char *p_rsa_key_e, const unsigned char *p_rsa_key_p, const unsigned char *p_rsa_key_q,
+int sgx_create_rsa_priv2_key(int mod_size, int exp_size, const unsigned char *p_rsa_key_e, const unsigned char *p_rsa_key_p, const unsigned char *p_rsa_key_q,
 	const unsigned char *p_rsa_key_dmp1, const unsigned char *p_rsa_key_dmq1, const unsigned char *p_rsa_key_iqmp,
 	void **new_pri_key2)
 {
 	if (mod_size <= 0 || exp_size <= 0 || new_pri_key2 == NULL ||
 		p_rsa_key_e == NULL || p_rsa_key_p == NULL || p_rsa_key_q == NULL || p_rsa_key_dmp1 == NULL ||
 		p_rsa_key_dmq1 == NULL || p_rsa_key_iqmp == NULL) {
-		return SGX_ERROR_INVALID_PARAMETER;
+		return ERROR_INVALID_PARAMETER;
 	}
 
 	bool rsa_memory_manager = 0;
 	EVP_PKEY *rsa_key = NULL;
 	RSA *rsa_ctx = NULL;
-	sgx_status_t ret_code = SGX_ERROR_UNEXPECTED;
+	int ret_code = ERROR_UNEXPECTED;
 	BIGNUM* n = NULL;
 	BIGNUM* e = NULL;
 	BIGNUM* d = NULL;
@@ -147,24 +181,16 @@ sgx_status_t sgx_create_rsa_priv2_key(int mod_size, int exp_size, const unsigned
 
 	do {
 		tmp_ctx = BN_CTX_new();
-		NULL_BREAK(tmp_ctx);
 		n = BN_new();
-		NULL_BREAK(n);
 
 		// convert RSA params, factors to BNs
 		//
 		p = BN_lebin2bn(p_rsa_key_p, (mod_size / 2), p);
-		BN_CHECK_BREAK(p);
 		q = BN_lebin2bn(p_rsa_key_q, (mod_size / 2), q);
-		BN_CHECK_BREAK(q);
 		dmp1 = BN_lebin2bn(p_rsa_key_dmp1, (mod_size / 2), dmp1);
-		BN_CHECK_BREAK(dmp1);
 		dmq1 = BN_lebin2bn(p_rsa_key_dmq1, (mod_size / 2), dmq1);
-		BN_CHECK_BREAK(dmq1);
 		iqmp = BN_lebin2bn(p_rsa_key_iqmp, (mod_size / 2), iqmp);
-		BN_CHECK_BREAK(iqmp);
 		e = BN_lebin2bn(p_rsa_key_e, (exp_size), e);
-		BN_CHECK_BREAK(e);
 
 		// calculate n value
 		//
@@ -177,7 +203,6 @@ sgx_status_t sgx_create_rsa_priv2_key(int mod_size, int exp_size, const unsigned
 		//d=(e^−1) mod ϕ(n)
 		//
 		d = BN_dup(n);
-		NULL_BREAK(d);
 
 		//select algorithms with an execution time independent of the respective numbers, to avoid exposing sensitive information to timing side-channel attacks.
 		//
@@ -227,14 +252,14 @@ sgx_status_t sgx_create_rsa_priv2_key(int mod_size, int exp_size, const unsigned
 		}
 
 		*new_pri_key2 = rsa_key;
-		ret_code = SGX_SUCCESS;
+		ret_code = SUCCESS;
 	} while (0);
 
 	BN_CTX_free(tmp_ctx);
 
 	//in case of failure, free allocated BNs and RSA struct
 	//
-	if (ret_code != SGX_SUCCESS) {
+	if (ret_code != SUCCESS) {
 		//BNs were not assigned to rsa ctx yet, user code must free allocated BNs
 		//
 		if (!rsa_memory_manager) {
@@ -253,15 +278,15 @@ sgx_status_t sgx_create_rsa_priv2_key(int mod_size, int exp_size, const unsigned
 	return ret_code;
 }
 
-sgx_status_t sgx_create_rsa_pub1_key(int mod_size, int exp_size, const unsigned char *le_n, const unsigned char *le_e, void **new_pub_key1)
+int sgx_create_rsa_pub1_key(int mod_size, int exp_size, const unsigned char *le_n, const unsigned char *le_e, void **new_pub_key1)
 {
 	if (new_pub_key1 == NULL || mod_size <= 0 || exp_size <= 0 || le_n == NULL || le_e == NULL) {
-		return SGX_ERROR_INVALID_PARAMETER;
+		return ERROR_INVALID_PARAMETER;
 	}
 
 	EVP_PKEY *rsa_key = NULL;
 	RSA *rsa_ctx = NULL;
-	sgx_status_t ret_code = SGX_ERROR_UNEXPECTED;
+	int ret_code = ERROR_UNEXPECTED;
 	BIGNUM* n = NULL;
 	BIGNUM* e = NULL;
 
@@ -269,9 +294,7 @@ sgx_status_t sgx_create_rsa_pub1_key(int mod_size, int exp_size, const unsigned 
 		//convert input buffers to BNs
 		//
 		n = BN_lebin2bn(le_n, mod_size, n);
-		BN_CHECK_BREAK(n);
 		e = BN_lebin2bn(le_e, exp_size, e);
-		BN_CHECK_BREAK(e);
 
 		// allocates and initializes an RSA key structure
 		//
@@ -292,10 +315,10 @@ sgx_status_t sgx_create_rsa_pub1_key(int mod_size, int exp_size, const unsigned 
 			break;
 		}
 		*new_pub_key1 = rsa_key;
-		ret_code = SGX_SUCCESS;
+		ret_code = SUCCESS;
 	} while (0);
 
-	if (ret_code != SGX_SUCCESS) {
+	if (ret_code != SUCCESS) {
 		EVP_PKEY_free(rsa_key);
 		BN_clear_free(n);
 		BN_clear_free(e);
@@ -304,18 +327,18 @@ sgx_status_t sgx_create_rsa_pub1_key(int mod_size, int exp_size, const unsigned 
 	return ret_code;
 }
 
-sgx_status_t sgx_rsa_pub_encrypt_sha256(const void* rsa_key, unsigned char* pout_data, size_t* pout_len, const unsigned char* pin_data,
+int sgx_rsa_pub_encrypt_sha256(const void* rsa_key, unsigned char* pout_data, size_t* pout_len, const unsigned char* pin_data,
                                         const size_t pin_len)
 {
 
     if (rsa_key == NULL || pout_len == NULL || pin_data == NULL || pin_len < 1 || pin_len >= INT_MAX)
     {
-        return SGX_ERROR_INVALID_PARAMETER;
+        return ERROR_INVALID_PARAMETER;
     }
 
     EVP_PKEY_CTX *ctx = NULL;
     size_t data_len = 0;
-    sgx_status_t ret_code = SGX_ERROR_UNEXPECTED;
+    int ret_code = ERROR_UNEXPECTED;
 
     do
     {
@@ -340,13 +363,13 @@ sgx_status_t sgx_rsa_pub_encrypt_sha256(const void* rsa_key, unsigned char* pout
         if(pout_data == NULL)
         {
             *pout_len = data_len;
-            ret_code = SGX_SUCCESS;
+            ret_code = SUCCESS;
             break;
         }
 
         else if(*pout_len < data_len)
         {
-            ret_code = SGX_ERROR_INVALID_PARAMETER;
+            ret_code = ERROR_INVALID_PARAMETER;
             break;
         }
 
@@ -355,7 +378,7 @@ sgx_status_t sgx_rsa_pub_encrypt_sha256(const void* rsa_key, unsigned char* pout
             break;
         }
 
-        ret_code = SGX_SUCCESS;
+        ret_code = SUCCESS;
     }
     while (0);
 
@@ -364,18 +387,18 @@ sgx_status_t sgx_rsa_pub_encrypt_sha256(const void* rsa_key, unsigned char* pout
     return ret_code;
 }
 
-sgx_status_t sgx_rsa_priv_decrypt_sha256(const void* rsa_key, unsigned char* pout_data, size_t* pout_len, const unsigned char* pin_data,
+int sgx_rsa_priv_decrypt_sha256(const void* rsa_key, unsigned char* pout_data, size_t* pout_len, const unsigned char* pin_data,
         const size_t pin_len)
 {
 
     if (rsa_key == NULL || pout_len == NULL || pin_data == NULL || pin_len < 1 || pin_len >= INT_MAX)
     {
-        return SGX_ERROR_INVALID_PARAMETER;
+        return ERROR_INVALID_PARAMETER;
     }
 
     EVP_PKEY_CTX *ctx = NULL;
     size_t data_len = 0;
-    sgx_status_t ret_code = SGX_ERROR_UNEXPECTED;
+    int ret_code = ERROR_UNEXPECTED;
 
     do
     {
@@ -399,13 +422,13 @@ sgx_status_t sgx_rsa_priv_decrypt_sha256(const void* rsa_key, unsigned char* pou
         if(pout_data == NULL)
         {
             *pout_len = data_len;
-            ret_code = SGX_SUCCESS;
+            ret_code = SUCCESS;
             break;
         }
 
         else if(*pout_len < data_len)
         {
-            ret_code = SGX_ERROR_INVALID_PARAMETER;
+            ret_code = ERROR_INVALID_PARAMETER;
             break;
         }
 
@@ -413,7 +436,7 @@ sgx_status_t sgx_rsa_priv_decrypt_sha256(const void* rsa_key, unsigned char* pou
         {
             break;
         }
-        ret_code = SGX_SUCCESS;
+        ret_code = SUCCESS;
     }
     while (0);
 
@@ -422,17 +445,17 @@ sgx_status_t sgx_rsa_priv_decrypt_sha256(const void* rsa_key, unsigned char* pou
     return ret_code;
 }
 
-sgx_status_t sgx_create_rsa_priv1_key(int n_byte_size, int e_byte_size, int d_byte_size, const unsigned char *le_n, const unsigned char *le_e,
+int sgx_create_rsa_priv1_key(int n_byte_size, int e_byte_size, int d_byte_size, const unsigned char *le_n, const unsigned char *le_e,
 	const unsigned char *le_d, void **new_pri_key1)
 {
 	if (n_byte_size <= 0 || e_byte_size <= 0 || d_byte_size <= 0 || new_pri_key1 == NULL ||
 		le_n == NULL || le_e == NULL || le_d == NULL) {
-		return SGX_ERROR_INVALID_PARAMETER;
+		return ERROR_INVALID_PARAMETER;
 	}
 
 	EVP_PKEY *rsa_key = NULL;
 	RSA *rsa_ctx = NULL;
-	sgx_status_t ret_code = SGX_ERROR_UNEXPECTED;
+	int ret_code = ERROR_UNEXPECTED;
 	BIGNUM* n = NULL;
 	BIGNUM* e = NULL;
 	BIGNUM* d = NULL;
@@ -441,11 +464,8 @@ sgx_status_t sgx_create_rsa_priv1_key(int n_byte_size, int e_byte_size, int d_by
 		//convert input buffers to BNs
 		//
 		n = BN_lebin2bn(le_n, n_byte_size, n);
-		BN_CHECK_BREAK(n);
 		e = BN_lebin2bn(le_e, e_byte_size, e);
-		BN_CHECK_BREAK(e);
 		d = BN_lebin2bn(le_d, d_byte_size, d);
-		BN_CHECK_BREAK(d);
 
 		// allocates and initializes an RSA key structure
 		//
@@ -469,10 +489,10 @@ sgx_status_t sgx_create_rsa_priv1_key(int n_byte_size, int e_byte_size, int d_by
 		}
 
 		*new_pri_key1 = rsa_key;
-		ret_code = SGX_SUCCESS;
+		ret_code = SUCCESS;
 	} while (0);
 
-	if (ret_code != SGX_SUCCESS) {
+	if (ret_code != SUCCESS) {
 		EVP_PKEY_free(rsa_key);
 		BN_clear_free(n);
 		BN_clear_free(e);
@@ -482,12 +502,90 @@ sgx_status_t sgx_create_rsa_priv1_key(int n_byte_size, int e_byte_size, int d_by
 	return ret_code;
 }
 
-sgx_status_t sgx_free_rsa_key(void *p_rsa_key, sgx_rsa_key_type_t key_type, int mod_size, int exp_size) {
-	(void)(key_type);
-	(void)(mod_size);
-	(void)(exp_size);
-	if (p_rsa_key != NULL) {
-		EVP_PKEY_free((EVP_PKEY*)p_rsa_key);
-	}
-	return SGX_SUCCESS;
+
+int main()
+{
+    //公開鍵、秘密鍵の生成
+    int n_byte_size = 256;
+    unsigned char n[256];
+    unsigned char d[256];
+    unsigned char p[256];
+    unsigned char q[256];
+    unsigned char dmp1[256];
+    unsigned char dmq1[256];
+    unsigned char iqmp[256];
+    long e = 65537;
+    void *priv_key = NULL;
+    void *pub_key = NULL;
+
+    //秘密鍵、公開鍵の成分を生成
+    int status = sgx_create_rsa_key_pair(n_byte_size, sizeof(e),
+            n, d, (unsigned char *)&e, p, q, dmp1, dmq1, iqmp);
+
+    if (status != SUCCESS) {
+        std::cerr << "Error at: sgx_create_rsa_key_pair\n";
+        client_err_print(status);
+    }
+
+    //秘密鍵生成
+    status = sgx_create_rsa_priv2_key(n_byte_size, sizeof(e), (const unsigned char *)&e,
+            (const unsigned char *)p, (const unsigned char *)q, (const unsigned char *)dmp1,
+            (const unsigned char *)dmq1, (const unsigned char *)iqmp, &priv_key);
+
+    if (status != SUCCESS) {
+        std::cerr << "Error at: sgx_create_rsa_priv2_key\n";
+        client_err_print(status);
+    }
+
+    //公開鍵生成
+    status = sgx_create_rsa_pub1_key(n_byte_size, sizeof(e),
+            (const unsigned char *)n, (const unsigned char *)&e, &pub_key);
+
+    if (status != SUCCESS) {
+        std::cerr << "Error at: sgx_create_rsa_pub1_key\n";
+        client_err_print(status);
+    }
+
+    char *data = "Hello World!";
+    std::cout << "original text = " << data << std::endl;
+
+    //暗号化
+    size_t size = 0;
+    status = sgx_rsa_pub_encrypt_sha256(pub_key, NULL, &size,
+            (const unsigned char *)data, strlen((const char *)data)+1);
+    if (status != SUCCESS) {
+        std::cerr << "Error at: sgx_rsa_pub_encrypt_sha256\n";
+        client_err_print(status);
+    }
+    unsigned char enc[256];
+    if (size == 256) {
+        status = sgx_rsa_pub_encrypt_sha256(pub_key, enc, &size,
+                (const unsigned char *)data, strlen((const char *)data)+1);
+    } else {
+        std::cerr << "Error at: The size of a ciphertext is not 256 bytes\n";
+    }
+
+    std::cout << "Enc = " << enc << std::endl;
+
+    //複合化
+    size_t enc_len = 256;
+    size_t dec_len = 0;
+    status = sgx_rsa_priv_decrypt_sha256(priv_key, NULL, &dec_len,
+            (const unsigned char *)enc, enc_len);
+    if (status != SUCCESS) {
+        std::cerr << "Error at: sgx_rsa_priv_decrypt_sha256\n";
+        client_err_print(status);
+    }
+
+    unsigned char dec[dec_len];
+    status = sgx_rsa_priv_decrypt_sha256(priv_key, dec, &dec_len,
+            (const unsigned char *)enc, enc_len);
+    if (status != SUCCESS) {
+        std::cerr << "Error at: sgx_rsa_priv_decrypt_sha256\n";
+        client_err_print(status);
+    }
+
+    std::cout << "Dec = " << (char *)dec << std::endl;
+
+    return 0;
 }
