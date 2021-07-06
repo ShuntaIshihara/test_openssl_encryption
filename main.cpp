@@ -275,6 +275,7 @@ int sgx_create_rsa_priv2_key(int mod_size, int exp_size, const unsigned char *p_
 		EVP_PKEY_free(rsa_key);
 	}
 
+    std::cout << "Size of rsa_key = " << sizeof(rsa_key) << std::endl;
 	return ret_code;
 }
 
